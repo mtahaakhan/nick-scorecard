@@ -1,8 +1,9 @@
 // Vercel Serverless Function — proxies Notion API to avoid CORS
-// Keeps the secret key server-side (never exposed to browser)
+// API key and database ID are read from Vercel environment variables —
+// never hardcoded, never exposed to the browser.
 
-const NOTION_SECRET = "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";
-const DATABASE_ID   = "32d29eb85aff8056bc32e18c8b997c39";
+const NOTION_SECRET = process.env.NOTION_SECRET;
+const DATABASE_ID   = process.env.NOTION_DATABASE_ID;
 
 export default async function handler(req, res) {
   // Allow embedding from anywhere (needed for Notion iframe embed)
@@ -12,6 +13,13 @@ export default async function handler(req, res) {
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
+  }
+
+  // Guard: if env vars are missing, return a helpful error
+  if (!NOTION_SECRET || !DATABASE_ID) {
+    return res.status(500).json({
+      error: "Missing environment variables. Please set NOTION_SECRET and NOTION_DATABASE_ID in your Vercel project settings."
+    });
   }
 
   try {
