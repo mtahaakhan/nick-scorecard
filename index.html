@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leadership Score Cards</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: transparent !important;
+      background-color: transparent !important;
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      display: block;
+      padding: 0;
+      margin: 0;
+    }
+
+    .cards-wrapper {
+      display: flex;
+      gap: 10px;
+      flex-wrap: nowrap;
+      width: 100%;
+      padding: 10px 0;
+      margin: 0;
+    }
+
+    .card {
+      flex: 1 1 0;
+      min-width: 0;
+      border-radius: 10px;
+      padding: 16px 18px 14px;
+      position: relative;
+      border: 1px solid #e8e8e4;
+    }
+
+    .card-label {
+      font-size: 13px;
+      color: #6b6b6b;
+      font-weight: 500;
+      margin-bottom: 8px;
+      letter-spacing: 0.01em;
+    }
+
+    .card-score-row {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+
+    .card-score {
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .card-max {
+      font-size: 15px;
+      color: #9b9b9b;
+      font-weight: 400;
+    }
+
+    .card-dot {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+    }
+
+    /* Domain colours — matching reference screenshot */
+    .card--inner   { background: #edf0f7; }
+    .card--inner   .card-score { color: #2d5be3; }
+    .card--inner   .card-dot   { background: #2a7a3b; }
+
+    .card--shared  { background: #f7f7f5; }
+    .card--shared  .card-score { color: #c47c00; }
+    .card--shared  .card-dot   { background: #2a7a3b; }
+
+    .card--owned   { background: #f0f7f0; }
+    .card--owned   .card-score { color: #2a7a3b; }
+    .card--owned   .card-dot   { background: #2a7a3b; }
+
+    .card--overall { background: #f7f7f5; }
+    .card--overall .card-score { color: #1a1a1a; }
+    .card--overall .card-dot   { background: #2a7a3b; }
+
+    /* Loading / error states */
+    .state-msg {
+      text-align: center;
+      color: #6b6b6b;
+      font-size: 14px;
+      padding: 24px;
+    }
+
+    .skeleton .card-score {
+      display: inline-block;
+      width: 60px;
+      height: 36px;
+      background: #ddd;
+      border-radius: 6px;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="cards-wrapper" id="cards">
+  <!-- skeleton while loading -->
+  <div class="card card--inner skeleton">
+    <div class="card-label">Inner</div>
+    <div class="card-score-row"><span class="card-score"></span></div>
+  </div>
+  <div class="card card--shared skeleton">
+    <div class="card-label">Shared</div>
+    <div class="card-score-row"><span class="card-score"></span></div>
+  </div>
+  <div class="card card--owned skeleton">
+    <div class="card-label">Owned</div>
+    <div class="card-score-row"><span class="card-score"></span></div>
+  </div>
+  <div class="card card--overall skeleton">
+    <div class="card-label">Overall</div>
+    <div class="card-score-row"><span class="card-score"></span></div>
+  </div>
+</div>
+
+<script>
+  const POLL_INTERVAL = 30000; // 30 seconds
+  let lastSnapshot = null;
+
+  const domains = [
+    { key: "inner",   label: "Inner",   cls: "card--inner"   },
+    { key: "shared",  label: "Shared",  cls: "card--shared"  },
+    { key: "owned",   label: "Owned",   cls: "card--owned"   },
+    { key: "overall", label: "Overall", cls: "card--overall" },
+  ];
+
+  function snapshot(data) {
+    return domains.map(d => data[d.key].score).join(",");
+  }
+
+  function renderCards(data) {
+    const container = document.getElementById("cards");
+    container.innerHTML = domains.map(d => {
+      const { score, max } = data[d.key];
+      return `
+        <div class="card ${d.cls}">
+          <div class="card-dot"></div>
+          <div class="card-label">${d.label}</div>
+          <div class="card-score-row">
+            <span class="card-score">${score ?? "—"}</span>
+            <span class="card-max">/ ${max}</span>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  async function loadScores() {
+    const container = document.getElementById("cards");
+
+    try {
+      const res = await fetch("/api/scores");
+      const data = await res.json();
+
+      if (!data.found) {
+        container.innerHTML = '<p class="state-msg">No pulse entries yet. Complete your first Monthly Pulse to see your scores here.</p>';
+        return;
+      }
+
+      const current = snapshot(data);
+
+      // Only re-render if scores changed (or first load)
+      if (current !== lastSnapshot) {
+        renderCards(data);
+        lastSnapshot = current;
+      }
+
+    } catch (err) {
+      // Only show error on first load; silently retry on subsequent polls
+      if (!lastSnapshot) {
+        container.innerHTML = `<p class="state-msg">Could not load scores. ${err.message}</p>`;
+      }
+    }
+  }
+
+  // Initial load, then poll every 30s
+  loadScores();
+  setInterval(loadScores, POLL_INTERVAL);
+</script>
+
+</body>
+</html>
