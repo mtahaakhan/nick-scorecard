@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Domain Scores Chart</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: transparent !important;
+      background-color: transparent !important;
+      width: 100%;
+      height: 100%;
+    }
+    #root { width: 100%; padding: 12px 4px 8px; }
+    .chart-container {
+      width: 100%;
+      background: #ffffff;
+      border-radius: 12px;
+      border: 1px solid #e8e8e4;
+      padding: 20px 16px 12px;
+    }
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .chart-title { font-size: 13px; font-weight: 600; color: #1a1a1a; letter-spacing: 0.01em; }
+    .chart-legend { display: flex; gap: 14px; }
+    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #6b6b6b; font-weight: 500; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .state-msg { text-align: center; color: #6b6b6b; font-size: 13px; padding: 40px 24px; }
+    .skeleton-bar {
+      height: 180px;
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      border-radius: 8px;
+      animation: shimmer 1.4s ease-in-out infinite;
+    }
+    @keyframes shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .custom-tooltip {
+      background: #ffffff;
+      border: 1px solid #e8e8e4;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .custom-tooltip .tt-label { font-weight: 600; color: #1a1a1a; margin-bottom: 6px; }
+    .custom-tooltip .tt-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: #444; }
+    .custom-tooltip .tt-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const { useState, useEffect, useCallback } = React;
+const { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } = Recharts;
+
+const COLOURS = { inner: "#2d5be3", shared: "#c47c00", owned: "#2a7a3b" };
+const MAXES   = { inner: 70, shared: 50, owned: 50 };
+const POLL_INTERVAL = 30000;
+
+function formatMonth(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+}
+
+function CustomTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  return React.createElement("div", { className: "custom-tooltip" },
+    React.createElement("div", { className: "tt-label" }, label),
+    payload.map(p =>
+      React.createElement("div", { className: "tt-row", key: p.dataKey },
+        React.createElement("span", { className: "tt-dot", style: { background: p.color } }),
+        React.createElement("span", null,
+          `${p.name}: `,
+          React.createElement("strong", null, p.value ?? "—"),
+          React.createElement("span", { style: { color: "#9b9b9b", fontSize: "11px" } }, ` / ${MAXES[p.dataKey]}`)
+        )
+      )
+    )
+  );
+}
+
+function DomainChart() {
+  const [entries, setEntries] = useState(null);
+  const [error, setError]     = useState(null);
+  const [lastSnap, setLastSnap] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res  = await fetch("/api/history");
+      const data = await res.json();
+      if (!data.found) { setEntries([]); return; }
+      const snap = data.entries.map(e => `${e.date}:${e.inner}:${e.shared}:${e.owned}`).join("|");
+      if (snap !== lastSnap) { setEntries(data.entries); setLastSnap(snap); }
+    } catch (err) {
+      if (entries === null) setError(err.message);
+    }
+  }, [lastSnap, entries]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, POLL_INTERVAL);
+    return () => clearInterval(id);
+  }, [load]);
+
+  if (entries === null && !error) {
+    return React.createElement("div", { className: "chart-container" },
+      React.createElement("div", { className: "chart-header" },
+        React.createElement("span", { className: "chart-title" }, "Domain Scores Over Time")
+      ),
+      React.createElement("div", { className: "skeleton-bar" })
+    );
+  }
+
+  if (error) {
+    return React.createElement("div", { className: "chart-container" },
+      React.createElement("p", { className: "state-msg" }, `Could not load chart data. ${error}`)
+    );
+  }
+
+  if (entries.length === 0) {
+    return React.createElement("div", { className: "chart-container" },
+      React.createElement("p", { className: "state-msg" }, "No pulse entries yet. Complete your first Monthly Pulse to see your trends here.")
+    );
+  }
+
+  if (entries.length === 1) {
+    return React.createElement("div", { className: "chart-container" },
+      React.createElement("p", { className: "state-msg" }, "Complete a second Monthly Pulse to start seeing your trend lines.")
+    );
+  }
+
+  const chartData = entries.map(e => ({
+    month: formatMonth(e.date),
+    inner: e.inner,
+    shared: e.shared,
+    owned: e.owned,
+  }));
+
+  return React.createElement("div", { className: "chart-container" },
+    React.createElement("div", { className: "chart-header" },
+      React.createElement("span", { className: "chart-title" }, "Domain Scores Over Time"),
+      React.createElement("div", { className: "chart-legend" },
+        ["inner","shared","owned"].map(k =>
+          React.createElement("div", { className: "legend-item", key: k },
+            React.createElement("span", { className: "legend-dot", style: { background: COLOURS[k] } }),
+            k.charAt(0).toUpperCase() + k.slice(1)
+          )
+        )
+      )
+    ),
+    React.createElement(ResponsiveContainer, { width: "100%", height: 200 },
+      React.createElement(LineChart, { data: chartData, margin: { top: 4, right: 8, left: -20, bottom: 0 } },
+        React.createElement(CartesianGrid, { strokeDasharray: "3 3", stroke: "#f0f0ee", vertical: false }),
+        React.createElement(XAxis, { dataKey: "month", tick: { fontSize: 11, fill: "#9b9b9b" }, axisLine: false, tickLine: false, dy: 6 }),
+        React.createElement(YAxis, { tick: { fontSize: 11, fill: "#9b9b9b" }, axisLine: false, tickLine: false, domain: [0, 70], ticks: [0,10,20,30,40,50,60,70] }),
+        React.createElement(Tooltip, { content: React.createElement(CustomTooltip), cursor: { stroke: "#e8e8e4", strokeWidth: 1 } }),
+        React.createElement(Line, { type: "monotone", dataKey: "inner",  name: "Inner",  stroke: COLOURS.inner,  strokeWidth: 2, dot: { r: 3, fill: COLOURS.inner,  strokeWidth: 0 }, activeDot: { r: 5, strokeWidth: 0 }, connectNulls: true }),
+        React.createElement(Line, { type: "monotone", dataKey: "shared", name: "Shared", stroke: COLOURS.shared, strokeWidth: 2, dot: { r: 3, fill: COLOURS.shared, strokeWidth: 0 }, activeDot: { r: 5, strokeWidth: 0 }, connectNulls: true }),
+        React.createElement(Line, { type: "monotone", dataKey: "owned",  name: "Owned",  stroke: COLOURS.owned,  strokeWidth: 2, dot: { r: 3, fill: COLOURS.owned,  strokeWidth: 0 }, activeDot: { r: 5, strokeWidth: 0 }, connectNulls: true })
+      )
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(DomainChart));
+</script>
+</body>
+</html>
