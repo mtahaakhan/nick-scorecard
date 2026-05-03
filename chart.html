@@ -4,178 +4,301 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Domain Scores Chart</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
     html, body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: transparent !important;
-      background-color: transparent !important;
       width: 100%;
       height: 100%;
     }
-    #root { width: 100%; padding: 12px 4px 8px; }
+
+    #wrap {
+      width: 100%;
+      padding: 10px 4px 8px;
+    }
+
     .chart-container {
       width: 100%;
       background: #ffffff;
       border-radius: 12px;
       border: 1px solid #e8e8e4;
-      padding: 20px 16px 12px;
+      padding: 18px 16px 14px;
     }
+
     .chart-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
-    .chart-title { font-size: 13px; font-weight: 600; color: #1a1a1a; letter-spacing: 0.01em; }
-    .chart-legend { display: flex; gap: 14px; }
-    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #6b6b6b; font-weight: 500; }
-    .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .state-msg { text-align: center; color: #6b6b6b; font-size: 13px; padding: 40px 24px; }
-    .skeleton-bar {
-      height: 180px;
-      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-      background-size: 200% 100%;
-      border-radius: 8px;
-      animation: shimmer 1.4s ease-in-out infinite;
+
+    .chart-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1a1a1a;
     }
-    @keyframes shimmer {
-      0%   { background-position: 200% 0; }
-      100% { background-position: -200% 0; }
+
+    .chart-legend {
+      display: flex;
+      gap: 14px;
     }
-    .custom-tooltip {
-      background: #ffffff;
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: #6b6b6b;
+      font-weight: 500;
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .state-msg {
+      text-align: center;
+      color: #6b6b6b;
+      font-size: 13px;
+      padding: 40px 24px;
+    }
+
+    #tooltip {
+      position: fixed;
+      background: #fff;
       border: 1px solid #e8e8e4;
       border-radius: 8px;
       padding: 10px 14px;
       font-size: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      pointer-events: none;
+      display: none;
+      z-index: 999;
     }
-    .custom-tooltip .tt-label { font-weight: 600; color: #1a1a1a; margin-bottom: 6px; }
-    .custom-tooltip .tt-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: #444; }
-    .custom-tooltip .tt-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+    .tt-label { font-weight: 600; color: #1a1a1a; margin-bottom: 6px; }
+
+    .tt-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 3px;
+      color: #444;
+    }
+
+    .tt-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .tt-max { color: #9b9b9b; font-size: 11px; }
   </style>
 </head>
 <body>
-<div id="root"></div>
-<script>
-const { useState, useEffect, useCallback } = React;
-const { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } = Recharts;
+<div id="wrap">
+  <div class="chart-container" id="container">
+    <p class="state-msg">Loading...</p>
+  </div>
+</div>
+<div id="tooltip"></div>
 
+<script>
 const COLOURS = { inner: "#2d5be3", shared: "#c47c00", owned: "#2a7a3b" };
 const MAXES   = { inner: 70, shared: 50, owned: 50 };
-const POLL_INTERVAL = 30000;
+const DOMAINS = ["inner", "shared", "owned"];
+const LABELS  = { inner: "Inner", shared: "Shared", owned: "Owned" };
+const POLL    = 30000;
+
+const PAD = { top: 10, right: 16, bottom: 30, left: 34 };
+const Y_MIN = 0, Y_MAX = 70;
+
+let lastSnap = null;
+let currentEntries = null;
 
 function formatMonth(dateStr) {
-  if (!dateStr) return "";
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
 }
 
-function CustomTooltip({ active, payload, label }) {
-  if (!active || !payload || !payload.length) return null;
-  return React.createElement("div", { className: "custom-tooltip" },
-    React.createElement("div", { className: "tt-label" }, label),
-    payload.map(p =>
-      React.createElement("div", { className: "tt-row", key: p.dataKey },
-        React.createElement("span", { className: "tt-dot", style: { background: p.color } }),
-        React.createElement("span", null,
-          `${p.name}: `,
-          React.createElement("strong", null, p.value ?? "—"),
-          React.createElement("span", { style: { color: "#9b9b9b", fontSize: "11px" } }, ` / ${MAXES[p.dataKey]}`)
-        )
-      )
-    )
-  );
+function renderEmpty(msg) {
+  document.getElementById("container").innerHTML = `<p class="state-msg">${msg}</p>`;
 }
 
-function DomainChart() {
-  const [entries, setEntries] = useState(null);
-  const [error, setError]     = useState(null);
-  const [lastSnap, setLastSnap] = useState(null);
+function renderChart(entries) {
+  const container = document.getElementById("container");
 
-  const load = useCallback(async () => {
-    try {
-      const res  = await fetch("/api/history");
-      const data = await res.json();
-      if (!data.found) { setEntries([]); return; }
-      const snap = data.entries.map(e => `${e.date}:${e.inner}:${e.shared}:${e.owned}`).join("|");
-      if (snap !== lastSnap) { setEntries(data.entries); setLastSnap(snap); }
-    } catch (err) {
-      if (entries === null) setError(err.message);
+  container.innerHTML = `
+    <div class="chart-header">
+      <span class="chart-title">Domain Scores Over Time</span>
+      <div class="chart-legend">
+        ${DOMAINS.map(k => `
+          <div class="legend-item">
+            <span class="legend-dot" style="background:${COLOURS[k]}"></span>
+            ${LABELS[k]}
+          </div>`).join("")}
+      </div>
+    </div>
+    <div style="position:relative">
+      <svg id="chart" style="width:100%;display:block" height="200"></svg>
+    </div>
+  `;
+
+  drawChart(entries);
+}
+
+function drawChart(entries) {
+  const svg = document.getElementById("chart");
+  if (!svg) return;
+
+  const W = svg.getBoundingClientRect().width || 600;
+  const H = 200;
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top  - PAD.bottom;
+  const n = entries.length;
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+
+  const xPos = i => PAD.left + (n === 1 ? chartW / 2 : i * chartW / (n - 1));
+  const yPos = v => PAD.top + chartH - (v - Y_MIN) / (Y_MAX - Y_MIN) * chartH;
+
+  // Grid lines
+  for (let v = Y_MIN; v <= Y_MAX; v += 10) {
+    const y = yPos(v);
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", PAD.left); line.setAttribute("x2", PAD.left + chartW);
+    line.setAttribute("y1", y); line.setAttribute("y2", y);
+    line.setAttribute("stroke", "#f0f0ee");
+    line.setAttribute("stroke-dasharray", "3 3");
+    svg.appendChild(line);
+
+    const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    txt.setAttribute("x", PAD.left - 5);
+    txt.setAttribute("y", y + 3);
+    txt.setAttribute("text-anchor", "end");
+    txt.setAttribute("font-size", "10");
+    txt.setAttribute("fill", "#9b9b9b");
+    txt.setAttribute("font-family", "-apple-system, sans-serif");
+    txt.textContent = v;
+    svg.appendChild(txt);
+  }
+
+  // X-axis labels
+  entries.forEach((e, i) => {
+    const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    txt.setAttribute("x", xPos(i));
+    txt.setAttribute("y", PAD.top + chartH + 18);
+    txt.setAttribute("text-anchor", "middle");
+    txt.setAttribute("font-size", "10");
+    txt.setAttribute("fill", "#9b9b9b");
+    txt.setAttribute("font-family", "-apple-system, sans-serif");
+    txt.textContent = formatMonth(e.date);
+    svg.appendChild(txt);
+  });
+
+  // Lines + dots
+  DOMAINS.forEach(key => {
+    const color = COLOURS[key];
+    const points = entries.map((e, i) => `${xPos(i)},${yPos(e[key] ?? 0)}`).join(" ");
+    const pl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    pl.setAttribute("points", points);
+    pl.setAttribute("fill", "none");
+    pl.setAttribute("stroke", color);
+    pl.setAttribute("stroke-width", "2");
+    pl.setAttribute("stroke-linejoin", "round");
+    pl.setAttribute("stroke-linecap", "round");
+    svg.appendChild(pl);
+
+    entries.forEach((e, i) => {
+      if (e[key] == null) return;
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", xPos(i));
+      circle.setAttribute("cy", yPos(e[key]));
+      circle.setAttribute("r", "3.5");
+      circle.setAttribute("fill", color);
+      svg.appendChild(circle);
+    });
+  });
+
+  // Hover hit areas
+  const tooltip = document.getElementById("tooltip");
+  const xStep = n > 1 ? chartW / (n - 1) : chartW;
+
+  entries.forEach((e, i) => {
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", i === 0 ? 0 : xPos(i) - xStep / 2);
+    rect.setAttribute("y", 0);
+    rect.setAttribute("width", xStep);
+    rect.setAttribute("height", H);
+    rect.setAttribute("fill", "transparent");
+
+    rect.addEventListener("mouseenter", (ev) => {
+      tooltip.innerHTML = `
+        <div class="tt-label">${formatMonth(e.date)}</div>
+        ${DOMAINS.map(k => e[k] != null ? `
+          <div class="tt-row">
+            <span class="tt-dot" style="background:${COLOURS[k]}"></span>
+            ${LABELS[k]}: <strong>${e[k]}</strong>
+            <span class="tt-max">/ ${MAXES[k]}</span>
+          </div>` : "").join("")}
+      `;
+      tooltip.style.display = "block";
+      tooltip.style.left = (ev.clientX + 12) + "px";
+      tooltip.style.top  = (ev.clientY - 10) + "px";
+    });
+
+    rect.addEventListener("mousemove", (ev) => {
+      tooltip.style.left = (ev.clientX + 12) + "px";
+      tooltip.style.top  = (ev.clientY - 10) + "px";
+    });
+
+    rect.addEventListener("mouseleave", () => {
+      tooltip.style.display = "none";
+    });
+
+    svg.appendChild(rect);
+  });
+}
+
+async function load() {
+  try {
+    const res  = await fetch("/api/history");
+    const data = await res.json();
+
+    if (!data.found || data.entries.length === 0) {
+      if (!lastSnap) renderEmpty("No pulse entries yet. Complete your first Monthly Pulse to see your trends here.");
+      return;
     }
-  }, [lastSnap, entries]);
 
-  useEffect(() => {
-    load();
-    const id = setInterval(load, POLL_INTERVAL);
-    return () => clearInterval(id);
-  }, [load]);
+    if (data.entries.length === 1) {
+      if (!lastSnap) renderEmpty("Complete a second Monthly Pulse to start seeing your trend lines.");
+      return;
+    }
 
-  if (entries === null && !error) {
-    return React.createElement("div", { className: "chart-container" },
-      React.createElement("div", { className: "chart-header" },
-        React.createElement("span", { className: "chart-title" }, "Domain Scores Over Time")
-      ),
-      React.createElement("div", { className: "skeleton-bar" })
-    );
+    const snap = data.entries.map(e => `${e.date}:${e.inner}:${e.shared}:${e.owned}`).join("|");
+    if (snap === lastSnap) return;
+
+    lastSnap = snap;
+    currentEntries = data.entries;
+    renderChart(data.entries);
+
+  } catch (err) {
+    if (!lastSnap) renderEmpty(`Could not load chart data. ${err.message}`);
   }
-
-  if (error) {
-    return React.createElement("div", { className: "chart-container" },
-      React.createElement("p", { className: "state-msg" }, `Could not load chart data. ${error}`)
-    );
-  }
-
-  if (entries.length === 0) {
-    return React.createElement("div", { className: "chart-container" },
-      React.createElement("p", { className: "state-msg" }, "No pulse entries yet. Complete your first Monthly Pulse to see your trends here.")
-    );
-  }
-
-  if (entries.length === 1) {
-    return React.createElement("div", { className: "chart-container" },
-      React.createElement("p", { className: "state-msg" }, "Complete a second Monthly Pulse to start seeing your trend lines.")
-    );
-  }
-
-  const chartData = entries.map(e => ({
-    month: formatMonth(e.date),
-    inner: e.inner,
-    shared: e.shared,
-    owned: e.owned,
-  }));
-
-  return React.createElement("div", { className: "chart-container" },
-    React.createElement("div", { className: "chart-header" },
-      React.createElement("span", { className: "chart-title" }, "Domain Scores Over Time"),
-      React.createElement("div", { className: "chart-legend" },
-        ["inner","shared","owned"].map(k =>
-          React.createElement("div", { className: "legend-item", key: k },
-            React.createElement("span", { className: "legend-dot", style: { background: COLOURS[k] } }),
-            k.charAt(0).toUpperCase() + k.slice(1)
-          )
-        )
-      )
-    ),
-    React.createElement(ResponsiveContainer, { width: "100%", height: 200 },
-      React.createElement(LineChart, { data: chartData, margin: { top: 4, right: 8, left: -20, bottom: 0 } },
-        React.createElement(CartesianGrid, { strokeDasharray: "3 3", stroke: "#f0f0ee", vertical: false }),
-        React.createElement(XAxis, { dataKey: "month", tick: { fontSize: 11, fill: "#9b9b9b" }, axisLine: false, tickLine: false, dy: 6 }),
-        React.createElement(YAxis, { tick: { fontSize: 11, fill: "#9b9b9b" }, axisLine: false, tickLine: false, domain: [0, 70], ticks: [0,10,20,30,40,50,60,70] }),
-        React.createElement(Tooltip, { content: React.createElement(CustomTooltip), cursor: { stroke: "#e8e8e4", strokeWidth: 1 } }),
-        React.createElement(Line, { type: "monotone", dataKey: "inner",  name: "Inner",  stroke: COLOURS.inner,  strokeWidth: 2, dot: { r: 3, fill: COLOURS.inner,  strokeWidth: 0 }, activeDot: { r: 5, strokeWidth: 0 }, connectNulls: true }),
-        React.createElement(Line, { type: "monotone", dataKey: "shared", name: "Shared", stroke: COLOURS.shared, strokeWidth: 2, dot: { r: 3, fill: COLOURS.shared, strokeWidth: 0 }, activeDot: { r: 5, strokeWidth: 0 }, connectNulls: true }),
-        React.createElement(Line, { type: "monotone", dataKey: "owned",  name: "Owned",  stroke: COLOURS.owned,  strokeWidth: 2, dot: { r: 3, fill: COLOURS.owned,  strokeWidth: 0 }, activeDot: { r: 5, strokeWidth: 0 }, connectNulls: true })
-      )
-    )
-  );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(DomainChart));
+load();
+setInterval(load, POLL);
+window.addEventListener("resize", () => {
+  if (currentEntries) drawChart(currentEntries);
+});
 </script>
 </body>
 </html>
