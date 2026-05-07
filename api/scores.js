@@ -3,7 +3,7 @@
 // never hardcoded, never exposed to the browser.
 
 const NOTION_SECRET = process.env.NOTION_SECRET;
-const DATABASE_ID   = process.env.NOTION_DATABASE_ID;
+const DATABASE_ID   = process.env.NOTION_PULSE_DATABASE_ID;
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
