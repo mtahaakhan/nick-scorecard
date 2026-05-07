@@ -17,19 +17,15 @@
       height: 100%;
     }
 
-    body {
-      display: block;
-      padding: 0;
-      margin: 0;
-    }
+    body { display: block; padding: 0; margin: 0; }
 
     .cards-wrapper {
       display: flex;
-      gap: 12px;
+      gap: 10px;
       flex-wrap: nowrap;
       width: 100%;
-      justify-content: stretch;
-      padding: 0 1rem;
+      padding: 10px 0;
+      margin: 0;
     }
 
     .card {
@@ -52,7 +48,7 @@
     .card-score-row {
       display: flex;
       align-items: baseline;
-      gap: 4px;
+      gap: 2px;
     }
 
     .card-score {
@@ -61,10 +57,10 @@
       line-height: 1;
     }
 
-    .card-max {
-      font-size: 15px;
+    .card-unit {
+      font-size: 18px;
+      font-weight: 600;
       color: #9b9b9b;
-      font-weight: 400;
     }
 
     .card-dot {
@@ -76,24 +72,18 @@
       border-radius: 50%;
     }
 
-    /* Domain colours — matching reference screenshot */
-    .card--inner   { background: #edf0f7; }
-    .card--inner   .card-score { color: #2d5be3; }
-    .card--inner   .card-dot   { background: #2a7a3b; }
+    .card--inner  { background: #edf0f7; }
+    .card--inner  .card-score { color: #2d5be3; }
+    .card--inner  .card-dot   { background: #2d5be3; }
 
-    .card--shared  { background: #f7f7f5; }
-    .card--shared  .card-score { color: #c47c00; }
-    .card--shared  .card-dot   { background: #2a7a3b; }
+    .card--shared { background: #f7f5ee; }
+    .card--shared .card-score { color: #c47c00; }
+    .card--shared .card-dot   { background: #c47c00; }
 
-    .card--owned   { background: #f0f7f0; }
-    .card--owned   .card-score { color: #2a7a3b; }
-    .card--owned   .card-dot   { background: #2a7a3b; }
+    .card--owned  { background: #f0f7f0; }
+    .card--owned  .card-score { color: #2a7a3b; }
+    .card--owned  .card-dot   { background: #2a7a3b; }
 
-    .card--overall { background: #f7f7f5; }
-    .card--overall .card-score { color: #1a1a1a; }
-    .card--overall .card-dot   { background: #2a7a3b; }
-
-    /* Loading / error states */
     .state-msg {
       text-align: center;
       color: #6b6b6b;
@@ -119,7 +109,6 @@
 <body>
 
 <div class="cards-wrapper" id="cards">
-  <!-- skeleton while loading -->
   <div class="card card--inner skeleton">
     <div class="card-label">Inner</div>
     <div class="card-score-row"><span class="card-score"></span></div>
@@ -132,21 +121,16 @@
     <div class="card-label">Owned</div>
     <div class="card-score-row"><span class="card-score"></span></div>
   </div>
-  <div class="card card--overall skeleton">
-    <div class="card-label">Overall</div>
-    <div class="card-score-row"><span class="card-score"></span></div>
-  </div>
 </div>
 
 <script>
-  const POLL_INTERVAL = 30000; // 30 seconds
+  const POLL_INTERVAL = 30000;
   let lastSnapshot = null;
 
   const domains = [
-    { key: "inner",   label: "Inner",   cls: "card--inner"   },
-    { key: "shared",  label: "Shared",  cls: "card--shared"  },
-    { key: "owned",   label: "Owned",   cls: "card--owned"   },
-    { key: "overall", label: "Overall", cls: "card--overall" },
+    { key: "inner",  label: "Inner",  cls: "card--inner",  max: 70 },
+    { key: "shared", label: "Shared", cls: "card--shared", max: 50 },
+    { key: "owned",  label: "Owned",  cls: "card--owned",  max: 50 },
   ];
 
   function snapshot(data) {
@@ -156,14 +140,15 @@
   function renderCards(data) {
     const container = document.getElementById("cards");
     container.innerHTML = domains.map(d => {
-      const { score, max } = data[d.key];
+      const { score } = data[d.key];
+      const pct = score != null ? Math.round((score / d.max) * 100) : null;
       return `
         <div class="card ${d.cls}">
           <div class="card-dot"></div>
           <div class="card-label">${d.label}</div>
           <div class="card-score-row">
-            <span class="card-score">${score ?? "—"}</span>
-            <span class="card-max">/ ${max}</span>
+            <span class="card-score">${pct ?? "—"}</span>
+            <span class="card-unit">${pct != null ? "%" : ""}</span>
           </div>
         </div>
       `;
@@ -172,7 +157,6 @@
 
   async function loadScores() {
     const container = document.getElementById("cards");
-
     try {
       const res = await fetch("/api/scores");
       const data = await res.json();
@@ -183,22 +167,17 @@
       }
 
       const current = snapshot(data);
-
-      // Only re-render if scores changed (or first load)
       if (current !== lastSnapshot) {
         renderCards(data);
         lastSnapshot = current;
       }
-
     } catch (err) {
-      // Only show error on first load; silently retry on subsequent polls
       if (!lastSnapshot) {
         container.innerHTML = `<p class="state-msg">Could not load scores. ${err.message}</p>`;
       }
     }
   }
 
-  // Initial load, then poll every 30s
   loadScores();
   setInterval(loadScores, POLL_INTERVAL);
 </script>
